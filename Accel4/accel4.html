@@ -1,0 +1,196 @@
+<pre>
+<span style="color: #007F00;">//</span>
+<span style="color: #007F00;">//&nbsp;Accel4.ino</span>
+<span style="color: #007F00;">//&nbsp;Written&nbsp;by&nbsp;Ronan&nbsp;Byrne,&nbsp;adapted&nbsp;from&nbsp;other&nbsp;sources&nbsp;which&nbsp;are&nbsp;referanced&nbsp;</span>
+<span style="color: #007F00;">//&nbsp;where&nbsp;approperiate</span>
+<span style="color: #007F00;">//&nbsp;Last&nbsp;updated&nbsp;30.04/2016</span>
+<span style="color: #007F00;">/*</span>
+<span style="color: #007F00;">&nbsp;&nbsp;&nbsp;This&nbsp;code&nbsp;controls&nbsp;a&nbsp;MSP432&nbsp;which&nbsp;is&nbsp;connected&nbsp;to&nbsp;two&nbsp;IMUs&nbsp;which&nbsp;record&nbsp;both</span>
+<span style="color: #007F00;">&nbsp;&nbsp;&nbsp;accelerometer&nbsp;and&nbsp;gyroscope&nbsp;signals&nbsp;and&nbsp;communicate&nbsp;through&nbsp;the&nbsp;I2C&nbsp;protocol.&nbsp;The&nbsp;data&nbsp;is&nbsp;</span>
+<span style="color: #007F00;">&nbsp;&nbsp;&nbsp;recorded&nbsp;when&nbsp;a&nbsp;record&nbsp;button&nbsp;is&nbsp;held,&nbsp;this&nbsp;data&nbsp;is&nbsp;saved&nbsp;to&nbsp;the&nbsp;RAM&nbsp;of&nbsp;the&nbsp;MSP.Once&nbsp;the&nbsp;send&nbsp;button&nbsp;is&nbsp;pressed&nbsp;this&nbsp;data&nbsp;is&nbsp;read&nbsp;from</span>
+<span style="color: #007F00;">&nbsp;&nbsp;&nbsp;the&nbsp;SD&nbsp;and&nbsp;sent&nbsp;over&nbsp;the&nbsp;Serial&nbsp;port&nbsp;to&nbsp;a&nbsp;PC&nbsp;whcih&nbsp;well&nbsp;process&nbsp;the&nbsp;data.</span>
+<span style="color: #007F00;">*/</span>
+<span style="color: #007F00;">//&nbsp;Include&nbsp;application,&nbsp;user&nbsp;and&nbsp;local&nbsp;libraries</span>
+#include&nbsp;&lt;Wire.h&gt;
+<span style="color: #007F00;">//&nbsp;Timer&nbsp;library&nbsp;and&nbsp;code&nbsp;adapted&nbsp;from&nbsp;https://github.com/ArduCAM/Energia/tree/master/examples/10.MultiTasking/TimerLibrary</span>
+#include&nbsp;<span style="color: #0066FF;">"Timer.h"</span>
+
+#define&nbsp;BUFFER_SIZE&nbsp;5500
+
+Timer&nbsp;myTimer;
+
+<span style="color: #007F00;">//&nbsp;Define&nbsp;variables&nbsp;and&nbsp;constants</span>
+<span style="color: #FF8000;">boolean</span> buttonState, buttonState2;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> ON_BUTTON = 30;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> RECORD_BUTTON = 8;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> SEND_BUTTON = 6;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> LedG = 26;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> LedB = 27;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> LedR = 28;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">uint8_t</span> LedY = 29;
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">int8_t</span> MPU6050=0x68;  <span style="color: #007F00;">// I2C address of the MPU-6050</span>
+<span style="color: #FF0000;">const</span> <span style="color: #FF0000;">int8_t</span> MPU9150 = 0x69; <span style="color: #007F00;">// I2C address of the MPU-9150</span>
+<span style="color: #FF0000;">int16_t</span> AcX[BUFFER_SIZE],AcY[BUFFER_SIZE],Ac2Y[BUFFER_SIZE],
+Ac2Z[BUFFER_SIZE],&nbsp;gX[BUFFER_SIZE];
+volatile&nbsp;<span style="color: #FF0000;">unsigned</span> Index=0;
+volatile&nbsp;<span style="color: #FF0000;">unsigned</span> n;
+volatile&nbsp;<span style="color: #FF8000;">int</span> Tic=0;
+
+<span style="color: #007F00;">//&nbsp;Add&nbsp;setup&nbsp;code</span>
+<span style="color: #FF0000;">void</span> <span style="color: #8B308B;"><b>setup</b></span>()
+{
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">begin</span>(115200); <span style="color: #007F00;">// Set baudrate at max speed(115200)</span>
+&nbsp;&nbsp;<span style="color: #FF8000;">pinMode</span>(LedB, <span style="color: #0066FF;">OUTPUT</span>);
+&nbsp;&nbsp;<span style="color: #FF8000;">pinMode</span>(LedG,<span style="color: #0066FF;">OUTPUT</span>);
+&nbsp;&nbsp;<span style="color: #FF8000;">pinMode</span>(LedR,<span style="color: #0066FF;">OUTPUT</span>);
+&nbsp;&nbsp;<span style="color: #FF8000;">pinMode</span>(ON_BUTTON,<span style="color: #0066FF;">INPUT</span>);
+&nbsp;&nbsp;<span style="color: #FF8000;">pinMode</span>(RECORD_BUTTON,<span style="color: #0066FF;">INPUT</span>);
+&nbsp;&nbsp;<span style="color: #FF8000;">pinMode</span>(SEND_BUTTON, <span style="color: #0066FF;">INPUT</span>);
+
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(Timer_getNumTimers(), <span style="color: #0066FF;">DEC</span>);
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(<span style="color: #0066FF;">" timers"</span>);
+
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(<span style="color: #0066FF;">"myTimer.begin... "</span>);
+&nbsp;&nbsp;myTimer.<span style="color: #FF8000;">begin</span>(timerFunction, 1, 1000); <span style="color: #007F00;">// Run timer at 1kHz.</span>
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(<span style="color: #0066FF;">"done"</span>);    
+
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(<span style="color: #0066FF;">"myTimer.start... "</span>);
+&nbsp;&nbsp;myTimer.start();
+&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(<span style="color: #0066FF;">"done"</span>);
+&nbsp;&nbsp;Wire.<span style="color: #FF8000;">begin</span>();
+&nbsp;&nbsp;Wire.beginTransmission(MPU6050);
+&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0x6B);  <span style="color: #007F00;">// PWR_MGMT_1 register</span>
+&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0);     <span style="color: #007F00;">// set to zero (wakes up the MPU-6050)</span>
+&nbsp;&nbsp;Wire.endTransmission(<span style="color: #FF0000;">true</span>);
+&nbsp;&nbsp;Wire.beginTransmission(MPU9150);
+&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0x6B);  <span style="color: #007F00;">// PWR_MGMT_1 register</span>
+&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0);     <span style="color: #007F00;">// set to zero (wakes up the MPU-9150)</span>
+&nbsp;&nbsp;Wire.endTransmission(<span style="color: #FF0000;">true</span>);
+}
+
+<span style="color: #007F00;">//&nbsp;Add&nbsp;loop&nbsp;code</span>
+<span style="color: #FF0000;">void</span> <span style="color: #FF8000;">loop</span>() 
+{
+&nbsp;&nbsp;<span style="color: #FF0000;">if</span>(<span style="color: #FF8000;">digitalRead</span>(ON_BUTTON)==1){
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedG, <span style="color: #0066FF;">HIGH</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">unsigned</span> count;
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #007F00;">// Check Button States</span>
+&nbsp;&nbsp;&nbsp;&nbsp;buttonState&nbsp;=&nbsp;<span style="color: #FF8000;">digitalRead</span>(RECORD_BUTTON);
+&nbsp;&nbsp;&nbsp;&nbsp;buttonState2&nbsp;=&nbsp;<span style="color: #FF8000;">digitalRead</span>(SEND_BUTTON);
+
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">if</span> (buttonState == 1){ <span style="color: #007F00;">// If recorded button is pressed recorded data</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">if</span> (Index &lt; BUFFER_SIZE) 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">while</span> (Tic==0);<span style="color: #007F00;">// wait until the timer ticks</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;readAccelerometer();&nbsp;<span style="color: #007F00;">// read from the MPU-6050</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;readAccelerometer2();&nbsp;<span style="color: #007F00;">// read from the MPU_9150</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Index++;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Tic=0;<span style="color: #007F00;">// reset timer</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">else</span> {
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #007F00;">// If index is greater than the buffer size, turn on red LED</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedR,<span style="color: #0066FF;">HIGH</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">else</span> <span style="color: #FF0000;">if</span> (buttonState2 == 1){<span style="color: #007F00;">// if send button is pressed, send data over Serial</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;n&nbsp;=&nbsp;Index;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;count&nbsp;=&nbsp;0;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedY,<span style="color: #0066FF;">HIGH</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(<span style="color: #0066FF;">"B"</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;establishContact();<span style="color: #007F00;">// Wait for a response from the PC</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">while</span> (count &lt; n)
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">if</span>(<span style="color: #FF8000;">digitalRead</span>(ON_BUTTON)==0) <span style="color: #FF0000;">break</span>;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #007F00;">// Wait for communication over serial</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">if</span> (<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">available</span>() &gt; 0){
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(AcX[count]);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(<span style="color: #0066FF;">","</span>); 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(AcY[count]);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(<span style="color: #0066FF;">","</span>); 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(Ac2Y[count]);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(<span style="color: #0066FF;">","</span>); 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(Ac2Z[count]);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">print</span>(<span style="color: #0066FF;">","</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(gX[count]);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;count++;
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">delay</span>(1);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">delay</span>(300);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(<span style="color: #0066FF;">"Done"</span>);<span style="color: #007F00;">// Send "Done" to PC</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">delay</span>(1000);
+&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">else</span>{ 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #007F00;">// Switch all outputs but Green led</span>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedY,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedB,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedR,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;}
+&nbsp;&nbsp;}
+&nbsp;&nbsp;<span style="color: #FF0000;">else</span>{
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #007F00;">// Switch out all outputs and reset index</span>
+&nbsp;&nbsp;&nbsp;&nbsp;Index&nbsp;=&nbsp;0;
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedG,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedB,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedR,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedY,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;}
+}
+
+<span style="color: #FF0000;">void</span> establishContact() {
+&nbsp;&nbsp;<span style="color: #007F00;">// Send "B" until a response is heard</span>
+&nbsp;&nbsp;<span style="color: #FF0000;">while</span> (<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">available</span>() &lt;= 0) {
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF0000;">if</span>(<span style="color: #FF8000;">digitalRead</span>(ON_BUTTON)==0) <span style="color: #FF0000;">break</span>;
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #8B308B;"><b>Serial</b></span>.<span style="color: #FF8000;">println</span>(<span style="color: #0066FF;">"B"</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">delay</span>(300);
+&nbsp;&nbsp;}
+}
+
+<span style="color: #FF0000;">void</span> readAccelerometer() <span style="color: #007F00;">// Can not be called from within an interrupt.</span>
+{
+&nbsp;&nbsp;<span style="color: #FF0000;">if</span> (Index &lt; BUFFER_SIZE)
+&nbsp;&nbsp;{
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedB,<span style="color: #0066FF;">HIGH</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.beginTransmission(MPU6050);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0x3B);  <span style="color: #007F00;">// starting with register 0x3B (ACCEL_XOUT_H)</span>
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.endTransmission(<span style="color: #FF0000;">false</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.requestFrom(MPU6050,4,<span style="color: #FF0000;">true</span>);  <span style="color: #007F00;">// request a total of 6 registers</span>
+&nbsp;&nbsp;&nbsp;&nbsp;AcX[Index]=Wire.<span style="color: #FF8000;">read</span>()&lt;&lt;8|Wire.<span style="color: #FF8000;">read</span>();  <span style="color: #007F00;">// 0x3B (ACCEL_XOUT_H) &amp; 0x3C (ACCEL_XOUT_L)     </span>
+&nbsp;&nbsp;&nbsp;&nbsp;AcY[Index]=Wire.<span style="color: #FF8000;">read</span>()&lt;&lt;8|Wire.<span style="color: #FF8000;">read</span>();  <span style="color: #007F00;">// 0x3D (ACCEL_YOUT_H) &amp; 0x3E (ACCEL_YOUT_L)</span>
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedB,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;}
+}
+<span style="color: #FF0000;">void</span> readAccelerometer2() <span style="color: #007F00;">// Can not be called from within an interrupt.</span>
+{
+&nbsp;&nbsp;<span style="color: #FF0000;">if</span> (Index &lt; BUFFER_SIZE)
+&nbsp;&nbsp;{
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedB,<span style="color: #0066FF;">HIGH</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.beginTransmission(MPU9150);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0x3D);  <span style="color: #007F00;">// starting with register 0x3D (ACCEL_YOUT_H)</span>
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.endTransmission(<span style="color: #FF0000;">false</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.requestFrom(MPU9150,4,<span style="color: #FF0000;">true</span>);  <span style="color: #007F00;">// request a total of 6 registers</span>
+&nbsp;&nbsp;&nbsp;&nbsp;Ac2Y[Index]=Wire.<span style="color: #FF8000;">read</span>()&lt;&lt;8|Wire.<span style="color: #FF8000;">read</span>();  <span style="color: #007F00;">// 0x3D (ACCEL_YOUT_H) &amp; 0x3E (ACCEL_YOUT_L)     </span>
+&nbsp;&nbsp;&nbsp;&nbsp;Ac2Z[Index]=Wire.<span style="color: #FF8000;">read</span>()&lt;&lt;8|Wire.<span style="color: #FF8000;">read</span>();  <span style="color: #007F00;">// 0x3F (ACCEL_ZOUT_H) &amp; 0x40 (ACCEL_ZOUT_L)</span>
+
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.<span style="color: #FF8000;">write</span>(0x43);  <span style="color: #007F00;">// starting with register 0x3D (ACCEL_YOUT_H)</span>
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.endTransmission(<span style="color: #FF0000;">false</span>);
+&nbsp;&nbsp;&nbsp;&nbsp;Wire.requestFrom(MPU9150,2,<span style="color: #FF0000;">true</span>);  <span style="color: #007F00;">// request a total of 6 registers</span>
+&nbsp;&nbsp;&nbsp;&nbsp;gX[Index]=Wire.<span style="color: #FF8000;">read</span>()&lt;&lt;8|Wire.<span style="color: #FF8000;">read</span>();  <span style="color: #007F00;">// 0x43 (GYRO_XOUT_H) &amp; 0x44 (GYRO_XOUT_L)     </span>
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #007F00;">//gZ[Index]=Wire.read()&lt;&lt;8|Wire.read();  // 0x47 (GYRO_ZOUT_H) &amp; 0x48 (GYRO_ZOUT_L)</span>
+&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #FF8000;">digitalWrite</span>(LedB,<span style="color: #0066FF;">LOW</span>);
+&nbsp;&nbsp;}
+}
+
+<span style="color: #007F00;">//&nbsp;Timer&nbsp;Function</span>
+<span style="color: #FF0000;">void</span> timerFunction()
+{
+&nbsp;&nbsp;Tic=1;
+}
+
+
+
+
+
+
+
+</pre>
