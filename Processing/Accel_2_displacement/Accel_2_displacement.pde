@@ -3,7 +3,7 @@
 // Written by Ronan Byrne, adapted from other sources referanced where approperiate
 // Last updated 15/05/2016
 /*
-   This program reads in values over the serial port from a MSP432 when data is available. 
+ This program reads in values over the serial port from a MSP432 when data is available. 
  The MSP432 will be sending over accelerometer and gyroscope values which are the processed
  and then graphed.To process the data, the user must specify the start and end of the movement 
  from an acceleration graph of the data reduce integration errors. The data points inbetween 
@@ -22,7 +22,7 @@ import javax.swing.*;
 Serial myPort;  //the Serial port object
 
 // Define variables
-String val, portid, name,test_info,
+String val, portid, name, test_info, 
   date, Dir1, filename;
 String [] folder; 
 boolean draw, firstContact, firstDraw, port, saved, fileOpen;
@@ -205,7 +205,7 @@ void draw() {
   else if ( draw == true && graph!=0) {
     if (id > 10) {// Check if it wasn't a false send
       date = day()+"/"+month()+"/"+year();
-      
+
       result.setString(0, "Date", date);
       Yfilt[0] = Y[0];
       Zfilt[0] = Z[0];
@@ -355,14 +355,14 @@ void draw() {
           "Info", INFORMATION_MESSAGE);
       } else {
         try {
-          time = hour()+"_" + minute()+" "+day()+"-"+month()+"-"+year();
-          filename = name+"("+time+")";
+          String ts = hour()+"_" + minute()+" "+day()+"-"+month()+"-"+year();
+          filename = name+"("+ts+")";
           Dir1 = sketchPath(name+"/");
           File f = new File(Dir1+filename+".csv");
           i = 1;
           while (saved == false) {
             if (f.exists()) {// check if file/directory exist 
-              filename = name+"("+time+")("+i+")"; // if file "i" exists check if file "i+1" exists, loop until the file doesn't exist
+              filename = name+"("+ts+")("+i+")"; // if file "i" exists check if file "i+1" exists, loop until the file doesn't exist
               println(filename);
               f = new File(Dir1+filename+".csv");
               i++;
@@ -815,14 +815,14 @@ void dispose() {
       "Exiting Without Saving", YES_NO_OPTION);
     if ( option == YES_OPTION) {
       try {
-        time = hour()+"_" + minute()+" "+day()+"-"+month()+"-"+year();
-        filename = name+"("+time+")";
+        String ts = hour()+"_" + minute()+" "+day()+"-"+month()+"-"+year();
+        filename = name+"("+ts+")";
         Dir1 = sketchPath(name+"/");
         File f = new File(Dir1+filename+".csv");
         i = 1;
         while (saved == false) {
           if (f.exists()) {
-            filename = name+"("+time+")("+i+")";
+            filename = name+"("+ts+")("+i+")";
             println(filename);
             f = new File(Dir1+filename+".csv");
             i++;
